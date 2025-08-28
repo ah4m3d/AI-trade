@@ -20,6 +20,7 @@ import {
   Zap
 } from 'lucide-react'
 import { AdvancedTechnicalIndicators, formatAdvancedTechnicalAnalysis } from '@/lib/advanced-technical-indicators'
+import AutoTrader from './auto-trader'
 
 interface Stock {
   symbol: string
@@ -66,6 +67,24 @@ export default function AIWatchlistAnalyzer() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [autoTradingEnabled, setAutoTradingEnabled] = useState(false)
+  
+  // Convert stocks array to technical data format for AutoTrader
+  const technicalData = stocks.reduce((acc, stock) => {
+    if (stock.technicalAnalysis) {
+      acc[stock.symbol] = {
+        quote: {
+          regularMarketPrice: stock.price,
+          regularMarketChange: stock.change,
+          regularMarketChangePercent: stock.changePercent,
+          symbol: stock.symbol,
+          shortName: stock.name
+        },
+        technicalAnalysis: stock.technicalAnalysis
+      }
+    }
+    return acc
+  }, {} as any)
 
   // Fetch advanced technical analysis for a stock
   const fetchAdvancedTechnicalAnalysis = useCallback(async (symbol: string) => {
@@ -265,6 +284,13 @@ export default function AIWatchlistAnalyzer() {
 
   return (
     <div className="w-full max-w-7xl mx-auto p-6 space-y-6">
+      {/* Auto Trading Component */}
+      <AutoTrader 
+        technicalData={technicalData}
+        isEnabled={autoTradingEnabled}
+        onToggle={setAutoTradingEnabled}
+      />
+      
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -432,8 +458,8 @@ export default function AIWatchlistAnalyzer() {
                               <span>₹{stock.technicalAnalysis.ma50}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span>MA200:</span>
-                              <span>₹{stock.technicalAnalysis.ma200}</span>
+                              <span>MA100:</span>
+                              <span>₹{stock.technicalAnalysis.ma100}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>MA Signal:</span>
