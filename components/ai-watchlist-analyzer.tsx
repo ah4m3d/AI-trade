@@ -60,14 +60,134 @@ const AI_WATCHLIST_STOCKS = [
   'SBIN.NS', 'BHARTIARTL.NS', 'ITC.NS', 'KOTAKBANK.NS', 'LT.NS'
 ]
 
-export default function AIWatchlistAnalyzer() {
+interface AIWatchlistAnalyzerProps {
+  onTechnicalDataUpdate?: (data: { [symbol: string]: any }) => void
+  autoTradingEnabled?: boolean
+  onAutoTradingToggle?: (enabled: boolean) => void
+}
+
+export default function AIWatchlistAnalyzer({ 
+  onTechnicalDataUpdate, 
+  autoTradingEnabled: propAutoTradingEnabled,
+  onAutoTradingToggle 
+}: AIWatchlistAnalyzerProps = {}) {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [selectedTimeframe, setSelectedTimeframe] = useState<TimeframeOption>(TIMEFRAME_OPTIONS[4]) // 1m default
   const [customSymbol, setCustomSymbol] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const [autoTradingEnabled, setAutoTradingEnabled] = useState(false)
+  
+  // Use prop-based auto-trading state if available, otherwise use internal state
+  const [internalAutoTradingEnabled, setInternalAutoTradingEnabled] = useState(false)
+  const autoTradingEnabled = propAutoTradingEnabled !== undefined ? propAutoTradingEnabled : internalAutoTradingEnabled
+
+  // Load auto trading state from localStorage on component mount (only for internal state)
+  useEffect(() => {
+    // Only manage internal state if not controlled by props
+    if (propAutoTradingEnabled === undefined) {
+      try {
+        let savedAutoTradingState = localStorage.getItem('autoTradingEnabled')
+        
+        // If main state is missing, try backup
+        if (savedAutoTradingState === null) {
+          savedAutoTradingState = localStorage.getItem('autoTradingEnabled_backup')
+          if (savedAutoTradingState !== null) {
+            console.log('🔄 Restored from backup state')
+            // Restore main state from backup
+            localStorage.setItem('autoTradingEnabled', savedAutoTradingState)
+          }
+        }
+        
+        if (savedAutoTradingState !== null) {
+          const parsedState = JSON.parse(savedAutoTradingState)
+          setInternalAutoTradingEnabled(parsedState)
+          console.log('✅ Auto trading state restored:', parsedState)
+        } else {
+          console.log('ℹ️ No saved auto trading state found, defaulting to false')
+        }
+      } catch (error) {
+        console.error('❌ Error loading auto trading state:', error)
+        setInternalAutoTradingEnabled(false)
+      }
+    }
+  }, [propAutoTradingEnabled])
+
+  // Save auto trading state to localStorage (only for internal state)
+  useEffect(() => {
+    if (propAutoTradingEnabled === undefined) {
+      try {
+        localStorage.setItem('autoTradingEnabled', JSON.stringify(internalAutoTradingEnabled))
+        // Also set a backup key for redundancy
+        localStorage.setItem('autoTradingEnabled_backup', JSON.stringify(internalAutoTradingEnabled))
+        console.log('💾 Auto trading state saved:', internalAutoTradingEnabled)
+      } catch (error) {
+        console.error('❌ Error saving auto trading state:', error)
+      }
+    }
+  }, [internalAutoTradingEnabled, propAutoTradingEnabled])
+
+  // Enhanced toggle function with immediate persistence
+  const handleAutoTradingToggle = (enabled: boolean) => {
+    console.log('🔄 Auto trading toggle initiated:', enabled)
+    
+    // Use prop callback if available, otherwise use internal state
+    if (onAutoTradingToggle) {
+      onAutoTradingToggle(enabled)
+    } else {
+      setInternalAutoTradingEnabled(enabled)
+      
+      // Immediate backup save to ensure persistence
+      try {
+        localStorage.setItem('autoTradingEnabled', JSON.stringify(enabled))
+        localStorage.setItem('autoTradingEnabled_backup', JSON.stringify(enabled))
+        console.log('✅ Auto trading state immediately saved:', enabled)
+      } catch (error) {
+        console.error('❌ Error in immediate save:', error)
+      }
+    }
+  }
+
+  // Additional persistence check on window focus/visibility change
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Window became visible, re-verify state (only for internal state)
+        if (propAutoTradingEnabled === undefined) {
+          try {
+            const currentState = localStorage.getItem('autoTradingEnabled')
+            if (currentState !== null) {
+              const parsedState = JSON.parse(currentState)
+              if (parsedState !== autoTradingEnabled) {
+                console.log('🔍 State mismatch detected, restoring from localStorage:', parsedState)
+                setInternalAutoTradingEnabled(parsedState)
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error in visibility change handler:', error)
+          }
+        }
+      }
+    }
+
+    const handleBeforeUnload = () => {
+      // Ensure state is saved before page unload
+      try {
+        localStorage.setItem('autoTradingEnabled', JSON.stringify(autoTradingEnabled))
+        localStorage.setItem('autoTradingEnabled_backup', JSON.stringify(autoTradingEnabled))
+      } catch (error) {
+        console.error('❌ Error in beforeunload handler:', error)
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [autoTradingEnabled])
   
   // Convert stocks array to technical data format for AutoTrader
   const technicalData = stocks.reduce((acc, stock) => {
@@ -241,6 +361,24 @@ export default function AIWatchlistAnalyzer() {
     setStocks(updatedStocks)
     setLastUpdate(new Date())
     setIsLoading(false)
+    
+    // Share technical data with other components
+    if (onTechnicalDataUpdate) {
+      const technicalData: { [symbol: string]: any } = {}
+      updatedStocks.forEach(stock => {
+        if (stock.technicalAnalysis) {
+          technicalData[stock.symbol] = {
+            quote: {
+              regularMarketPrice: stock.price,
+              regularMarketChange: stock.change,
+              regularMarketChangePercent: stock.changePercent
+            },
+            technicalAnalysis: stock.technicalAnalysis
+          }
+        }
+      })
+      onTechnicalDataUpdate(technicalData)
+    }
   }
 
   // Handle timeframe change
@@ -288,7 +426,7 @@ export default function AIWatchlistAnalyzer() {
       <AutoTrader 
         technicalData={technicalData}
         isEnabled={autoTradingEnabled}
-        onToggle={setAutoTradingEnabled}
+        onToggle={handleAutoTradingToggle}
       />
       
       <Card>
